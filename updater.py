@@ -12,13 +12,12 @@ import os
 import urllib.request
 import urllib.error
 import logging
-import copy
 import socket
 import struct
-from datetime import datetime
 from functools import wraps
 
 CHECKIP_URL = "http://ipinfo.io/ip"
+CHECKIPV6_URL = "https://v6.ipinfo.io/ip"
 APIURL = "https://api.digitalocean.com/v2"
 
 
@@ -59,7 +58,8 @@ def get_url(url, headers=None):
 
 @retry(times=5, delay=1.0, errors=(urllib.error.HTTPError,))
 def request(url, data, headers, method=None):
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    req = urllib.request.Request(
+        url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=os.environ.get('HTTP_TIMEOUT', 10)) as file:
         data = file.read()
         return data.decode('utf8')
@@ -67,10 +67,14 @@ def request(url, data, headers, method=None):
 
 def get_external_ip(expected_rtype):
     """ Return the current external IP. """
-    external_ip = get_url(CHECKIP_URL).rstrip()
+    if (expected_rtype == "A"):
+        external_ip = get_url(CHECKIP_URL).rstrip()
+    elif (expected_rtype == "AAAA"):
+        external_ip = get_url(CHECKIPV6_URL).rstrip()
     ip = ipaddress.ip_address(external_ip)
     if (ip.version == 4 and expected_rtype != 'A') or (ip.version == 6 and expected_rtype != 'AAAA'):
-        raise Exception('Expected Rtype {} but got {}'.format(expected_rtype, external_ip))
+        raise Exception('Expected Rtype {} but got {}'.format(
+            expected_rtype, external_ip))
     return external_ip
 
 
@@ -127,7 +131,8 @@ def get_record(domain, name, rtype, token):
 
 
 def set_record_ip(domain, record, ipaddr, token):
-    logging.info("Updating record %s.%s to %s", record['name'], domain['name'], ipaddr)
+    logging.info("Updating record %s.%s to %s",
+                 record['name'], domain['name'], ipaddr)
 
     url = "%s/domains/%s/records/%s" % (APIURL, domain['name'], record['id'])
     data = json.dumps({'data': ipaddr}).encode('utf-8')
@@ -139,7 +144,8 @@ def set_record_ip(domain, record, ipaddr, token):
 
 
 def create_record(domain, record, token):
-    logging.info("Creating record %s.%s with value %s", record['name'], domain['name'], record['data'])
+    logging.info("Creating record %s.%s with value %s",
+                 record['name'], domain['name'], record['data'])
     logging.info(record)
     url = "%s/domains/%s/records" % (APIURL, domain['name'])
     assert 'name' in record
@@ -162,7 +168,8 @@ def get_ip_address(ifname):
 def is_wireless(ifname):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        res = fcntl.ioctl(s.fileno(), 0x8B01, struct.pack('256s', ifname[:15].encode()))
+        res = fcntl.ioctl(s.fileno(), 0x8B01, struct.pack(
+            '256s', ifname[:15].encode()))
         return True
     except OSError as e:
         return False
@@ -185,20 +192,25 @@ def get_local_internet_ip():
         s.close()
     return IP
 
+
 def get_fqdn(host, domain):
     return "{}.{}".format(host.rstrip('.'), domain)
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--token", type=str, default=os.environ.get('DIGITAL_OCEAN_TOKEN'))
+    parser.add_argument("-t", "--token", type=str,
+                        default=os.environ.get('DIGITAL_OCEAN_TOKEN'))
     parser.add_argument("-l", "--local", action='store_true',
                         help="Use the local ip connected to the internet")
     parser.add_argument("--rtype", choices=['A', 'AAAA'], default='A')
     parser.add_argument("record", type=str)
     parser.add_argument("domain", type=str)
-    parser.add_argument("--ip", type=str, help='data field for the record such as ipv4 address, defaults to external ip if not set or local ip if --local given')
+    parser.add_argument(
+        "--ip", type=str, help='data field for the record such as ipv4 address, defaults to external ip if not set or local ip if --local given')
     parser.add_argument("--ttl", default='60', type=str)
-    parser.add_argument("-q", "--quiet", action="store_true", help='Only display output on IP change')
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help='Only display output on IP change')
     return parser.parse_args()
 
 
@@ -211,7 +223,8 @@ def config_logging():
     import time
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.basicConfig(format='{}: %(asctime)sZ %(levelname)s %(message)s'.format(script_name()))
+    logging.basicConfig(
+        format='{}: %(asctime)sZ %(levelname)s %(message)s'.format(script_name()))
     logging.Formatter.converter = time.gmtime
 
 
@@ -235,18 +248,21 @@ def main():
         try:
             resolved_ip = socket.gethostbyname(fqdn)
             if ipaddr == resolved_ip:
-                logging.info("%s resolves to %s, up to date and no update required.", fqdn, resolved_ip)
+                logging.info(
+                    "%s resolves to %s, up to date and no update required.", fqdn, resolved_ip)
                 return 0
         except socket.gaierror as e:
             logging.exception(e)
 
-        logging.info("Update %s %s.%s %s %s", args.rtype, args.record, args.domain, ipaddr, args.ttl)
+        logging.info("Update %s %s.%s %s %s", args.rtype,
+                     args.record, args.domain, ipaddr, args.ttl)
         domain = get_domain(args.domain, args.token)
         action = None
         try:
             record = get_record(domain, args.record, args.rtype, args.token)
             if record['data'] == ipaddr:
-                logging.info("Records %s.%s already set to %s.", record['name'], domain['name'], ipaddr)
+                logging.info("Records %s.%s already set to %s.",
+                             record['name'], domain['name'], ipaddr)
                 logging.info(record)
                 return 0
             action = 'update'
@@ -254,11 +270,13 @@ def main():
             action = 'create'
         if action == 'create':
             logging.warning("Record doesn't exist, creating...")
-            record = dict(data=ipaddr, name=args.record, type=args.rtype, ttl=args.ttl)
+            record = dict(data=ipaddr, name=args.record,
+                          type=args.rtype, ttl=args.ttl)
             create_record(domain, record, args.token)
         else:
             assert action == 'update'
-            logging.warning("Updating record from %s to %s", record['data'], ipaddr)
+            logging.warning("Updating record from %s to %s",
+                            record['data'], ipaddr)
             set_record_ip(domain, record, ipaddr, args.token)
         return 0
 
